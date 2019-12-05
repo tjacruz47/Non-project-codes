@@ -31,7 +31,7 @@ bt.uuid,
 (CASE WHEN bt.city_id IS NULL THEN 'Unassignable' ELSE city_name END) AS city_name,	
 (CASE WHEN group_uuid IN ('e5a58c0b-13d2-4d85-a2ff-5b53e8e24475') THEN 'Urgent L3/L4'
     WHEN group_uuid IN ('c4645dbe-67da-4535-97d7-d73feaf8a92c', -- Safety / IRT - Accidents (L1/L2)
-	                    '24d6347d-eb31-4494-8402-9e5278ec238e'  -- Safety / IRT - Incidents (L1/L2)
+						'24d6347d-eb31-4494-8402-9e5278ec238e'  -- Safety / IRT - Incidents (L1/L2)
 	) THEN 'Urgent L1/L2'
 	WHEN group_uuid IN ('8a455f79-fd89-4b16-afb9-ee35a1f04fb5', -- US IRT Urgent Investigations
 	                    '382fc7df-5315-422d-a3e9-d72f99700934', -- Service Denial
@@ -90,7 +90,7 @@ WHERE TRUE
 	OR (bt.close_timestamp BETWEEN (DATE_TRUNC('week', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 WEEKS')::INTERVAL) AND (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL)))	
 	AND NOT (bt.status IN ('solved', 'response_requested','archived') AND a.count_agent_messages = 0 AND a.count_agent_messages IS NOT NULL) -- exclude solves without replies	
 	AND (region IN ('APACX - ANZ') OR country_id = 85) -- JANZ	
-	AND (is_csr_ticket IS FALSE OR (is_csr_ticket IS TRUE and a.count_agent_messages > 0 and a.count_user_messages > 0)) -- excludes outbounds 2018/01/08	
+	AND (is_csr_ticket IS FALSE OR (is_csr_ticket IS TRUE and a.count_agent_messages > 0 and a.count_user_messages > 0)) -- excludes outbounds
 	AND (bt.modality != 'in_person' OR bt.modality IS NULL) -- remove GLH	
 	AND NOT (ancestor_2_uuid = 'f20b7a2c-cb69-430b-8358-7d16cd705b64' AND ancestor_2_uuid IS NOT NULL) -- exclude eng test contacts	
 	AND NOT ((ancestor_4_uuid = 'e8cc0caa-d594-4084-9049-fc8e67ccee83' AND ancestor_4_uuid IS NOT NULL) -- positive feedback	
@@ -162,7 +162,7 @@ WHERE TRUE
 	OR (bt.update_timestamp >= (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 weeks')::INTERVAL) AND bt.create_timestamp <= (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL)))	
 	AND NOT (bt.status IN ('solved', 'response_requested','archived') AND a.count_agent_messages = 0 AND a.count_agent_messages IS NOT NULL) -- exclude solves without replies	
 	AND (region IN ('APACX - ANZ') OR country_id = 85)	
-	AND (is_csr_ticket IS FALSE OR (is_csr_ticket IS TRUE and a.count_agent_messages > 0 and a.count_user_messages > 0)) -- excludes outbounds 2018/01/08	
+	AND (is_csr_ticket IS FALSE OR (is_csr_ticket IS TRUE and a.count_agent_messages > 0 and a.count_user_messages > 0)) -- excludes outbounds
 	AND (a.csat_rating IS NOT NULL OR bt.is_satisfied IS NOT NULL)	
 	AND (bt.modality != 'in_person' OR bt.modality IS NULL) -- remove GLH	
 	
@@ -219,7 +219,7 @@ WHERE (zd.ticket_created_at BETWEEN (DATE_TRUNC('week', DATE_TRUNC('day', CURREN
 	AND (NOT (zd.status IN ('Solved', 'Closed') AND replies = 0) or zd.status is null)	
 	AND ((issue_type NOT ILIKE '%positive%' AND issue_type NOT ILIKE '%spam%') OR issue_type IS NULL)	
 	AND tags NOT ILIKE '%outbound_ticket%'	
-	AND tags NOT ILIKE '%inperson%' -- exclude greenlight visits 2018/01/08 change	
+	AND tags NOT ILIKE '%inperson%' -- exclude greenlight visits
 	AND (zd.tags ILIKE '%rops_%' OR zd.tags ILIKE '%restaurant_operations%' OR zd.tags ILIKE '%anz_uet%' OR zd.tags ILIKE '%jpn_uet%' OR ((zd.tags ILIKE '%delivery_business%' OR zd.tags ILIKE '%eats_support%') AND country_id = 85) OR zd.tags ILIKE '%eats_support%')	
 	AND (region IN ('APACX - ANZ') OR country_id = 85)	
 ),	
