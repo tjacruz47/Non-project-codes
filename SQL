@@ -1,0 +1,901 @@
+WITH	
+	
+actions AS (	
+SELECT	
+uuid,	
+ticket_uuid,	
+initiator_uuid,	
+initiator_type,	
+action_timestamp,	
+type,	
+value	
+	
+FROM fact_bliss_action	
+WHERE initiator_type = 'agent'	
+AND action_timestamp BETWEEN (DATE_TRUNC('week', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 11 WEEKS')::INTERVAL) AND (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL)	
+),	
+	
+bliss AS (	
+SELECT DISTINCT	
+JANZ' AS region,	
+Bliss' AS platform,	
+bt.uuid,	
+(CASE WHEN bt.city_id IS NULL THEN 'Unassignable'	
+    WHEN country_name = 'Japan' THEN 'Japan Office'	
+    WHEN country_name = 'New Zealand' THEN 'New Zealand Office'	
+    WHEN city_name IN ('Sydney','Newcastle','Canberra','Wollongong','Byron Bay') THEN 'Sydney Office'	
+    WHEN city_name IN ('Melbourne','Geelong','Hobart','Mornington Peninsula') THEN 'Melbourne Office'	
+    WHEN city_name IN ('Brisbane','Gold Coast','Townsville','Sunshine Coast','Toowoomba','Cairns') THEN 'Brisbane Office'	
+    WHEN city_name IN ('Perth','Adelaide','Bunbury') THEN 'Perth Office'	
+    ELSE 'Other' END) AS office,	
+(CASE WHEN bt.city_id IS NULL THEN 'Unassignable' ELSE city_name END) AS city_name,	
+(CASE WHEN group_uuid IN ('e5a58c0b-13d2-4d85-a2ff-5b53e8e24475') THEN 'Urgent L3/L4'
+    WHEN group_uuid IN ('c4645dbe-67da-4535-97d7-d73feaf8a92c', -- Safety / IRT - Accidents (L1/L2)
+	                    '24d6347d-eb31-4494-8402-9e5278ec238e'  -- Safety / IRT - Incidents (L1/L2)
+	) THEN 'Urgent L1/L2'
+	WHEN group_uuid IN ('8a455f79-fd89-4b16-afb9-ee35a1f04fb5', -- US IRT Urgent Investigations
+	                    '382fc7df-5315-422d-a3e9-d72f99700934', -- Service Denial
+	                    'e82d973c-aa08-4e4c-803b-fa4058f8086e'  -- India Program SOS
+	) THEN 'Urgent Others'
+	WHEN group_uuid IN ('8939ff21-3d8c-4c98-86f3-b9491f9bbe70', -- NYC TLC
+	                    '3ae18d53-60e2-4da0-a707-6214d64406d9', -- Activations & Docs
+                        'a72edcd0-fe01-4da3-84fe-affdcdc45585', -- Driver Signing Up	
+                        '71c2eeca-c958-42c6-8ea0-faa1bdd8376c', -- Fuel Cards	
+                        '37ab1f9e-a1bd-423e-acd2-d7f534cf7af0', -- Citations	
+                        '1cbcce6b-2466-4e2e-bf28-78aa14a637c0', -- ANZ NSW Funnel	
+                        '61d302b0-3755-4014-8545-32d933e74c28'  -- Mexico Facturas	
+    ) THEN 'Funnel'	
+    WHEN group_uuid IN ('a9930194-9d9a-4f42-be12-766e5ae7c32b') THEN 'ASR'	
+    WHEN group_uuid IN ('5cff74f3-bffb-4943-9c25-62e265776c40') THEN 'U4B'
+    WHEN group_uuid IN ('929dfdbf-7422-418f-9770-468e8658d83c', -- UberEATS Courier
+	                    'af1cab16-7f53-4ea0-9c3b-906e01b0918b', -- UberEATS Eater
+                        'b320b20e-0e05-45c2-a878-12681093dc5c', -- UberEATS Restaurants
+                        '025ddf94-5b53-45cc-8ad4-933d69df8fce'  -- UberEATS Account Managers
+	) THEN 'EATS'
+	WHEN bt.tier = 'tier2' THEN 'Level 2' ELSE 'Level 1' END) AS tier,
+(CASE WHEN group_uuid IN ('af1cab16-7f53-4ea0-9c3b-906e01b0918b') THEN 'Eater'
+	WHEN group_uuid IN ('929dfdbf-7422-418f-9770-468e8658d83c') THEN 'Courier'
+	WHEN group_uuid IN ('b320b20e-0e05-45c2-a878-12681093dc5c') OR ancestor_1_name = 'Restaurants' THEN 'Restaurants'
+  WHEN ancestor_1_name IS NOT NULL AND ancestor_1_name != 'Other' THEN ancestor_1_name	
+	WHEN bt.requester_type IN ('eater','rider','client') THEN 'Rider'
+	ELSE 'Driver' END) AS requester_type,
+(CASE WHEN site_code IS NULL THEN 'Unanswered'
+	WHEN bt.close_agent_uuid IN ('223c3b70-1474-44b9-acf3-0fdf6db4cbd5','32bdd7a5-577d-479e-bccb-1a851e2d99e1') THEN 'Automation'  --Cliff, Paul
+	WHEN site_code IN ('COE_UBR_SYD','COE_UBR_MNL') THEN site_name
+	WHEN site_code ILIKE '%BPO%' THEN 'BPO'
+	ELSE 'City Teams' END) AS cohort,
+	
+-- ticket associated timestamps	
+bt.create_timestamp,	
+bt.close_timestamp,	
+bt.first_solve_timestamp,	
+bt.requester_uuid,	
+	
+-- ticket attributes	
+bt.status,	
+a.count_agent_messages,	
+time_to_first_message_minutes,	
+time_to_close_minutes,	
+(CASE WHEN bt.tier = 'tier1' THEN 'Tier 1' ELSE 'Tier 2' END) AS bliss_ticket_tier	
+	
+FROM dim_bliss_ticket bt	
+    LEFT JOIN dim_bliss_ticket_type dt ON bt.type_uuid = dt.uuid	
+    LEFT JOIN analytics_bliss_ticket a ON bt.uuid = a.ticket_uuid	
+    LEFT JOIN dim_city c ON (CASE WHEN bt.city_id IS NULL THEN bt.country_uuid ELSE TO_CHAR(bt.city_id) END) = (CASE WHEN bt.city_id IS       NULL THEN c.country_uuid ELSE TO_CHAR(c.city_id) END)	
+    AND NOT (c.mega_region IS NULL OR c.region IS NULL OR c.sub_region IS NULL)	
+    LEFT JOIN dim_bliss_agent ba ON LOWER(bt.close_agent_uuid) = LOWER(ba.uuid)	
+	
+WHERE TRUE	
+AND ((bt.create_timestamp BETWEEN (DATE_TRUNC('week', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 WEEKS')::INTERVAL) AND   (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL))	
+OR (bt.close_timestamp BETWEEN (DATE_TRUNC('week', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 WEEKS')::INTERVAL) AND (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL)))	
+AND NOT (bt.status IN ('solved', 'response_requested','archived') AND a.count_agent_messages = 0 AND a.count_agent_messages IS NOT NULL) -- exclude solves without replies	
+AND (region IN ('APACX - ANZ') OR country_id = 85) -- JANZ	
+AND (is_csr_ticket IS FALSE OR (is_csr_ticket IS TRUE and a.count_agent_messages > 0 and a.count_user_messages > 0)) -- excludes outbounds 2018/01/08	
+AND (bt.modality != 'in_person' OR bt.modality IS NULL) -- remove GLH	
+AND NOT (ancestor_2_uuid = 'f20b7a2c-cb69-430b-8358-7d16cd705b64' AND ancestor_2_uuid IS NOT NULL) -- exclude eng test contacts	
+/* 2018-01-08	
+AND NOT ((ancestor_4_uuid = 'e8cc0caa-d594-4084-9049-fc8e67ccee83' AND ancestor_4_uuid IS NOT NULL) -- positive feedback	
+OR (bt.type_uuid = '8128df86-def4-421c-98cd-c4b8cc0bf047' AND bt.type_uuid IS NOT NULL)  -- positive co-rider	
+OR (dt.name ILIKE '%duplicate contact%' AND dt.name IS NOT NULL)  -- exclude duplicate tickets	
+OR (dt.name = 'Spam' AND dt.name IS NOT NULL)) -- exclude spam tickets*/	
+),	
+	
+bliss_csat AS (	
+SELECT DISTINCT	
+JANZ' AS region,	
+Bliss' AS platform,	
+bt.uuid,	
+(CASE WHEN bt.city_id IS NULL THEN 'Unassignable'	
+    WHEN country_name = 'Japan' THEN 'Japan Office'	
+    WHEN country_name = 'New Zealand' THEN 'New Zealand Office'	
+    WHEN city_name IN ('Sydney','Newcastle','Canberra','Wollongong','Byron Bay') THEN 'Sydney Office'	
+    WHEN city_name IN ('Melbourne','Geelong','Hobart','Mornington Peninsula') THEN 'Melbourne Office'	
+    WHEN city_name IN ('Brisbane','Gold Coast','Townsville','Sunshine Coast','Toowoomba','Cairns') THEN 'Brisbane Office'	
+    WHEN city_name IN ('Perth','Adelaide','Bunbury') THEN 'Perth Office'	
+    ELSE 'Other' END) AS office,	
+(CASE WHEN bt.city_id IS NULL THEN 'Unassignable' ELSE city_name END) AS city_name,	
+	
+-- ticket data	
+bt.create_timestamp,	
+bt.close_timestamp,	
+bt.first_solve_timestamp,	
+bt.requester_type,	
+bt.type_uuid,	
+	
+-- csat v1 data	
+bt.is_satisfied,	
+	
+-- csat v2 data	
+(CASE WHEN (FIRST_VALUE(fa.initiator_uuid) OVER (PARTITION BY fa.ticket_uuid ORDER BY fa.action_timestamp DESC)) IS NULL THEN bt.csat_agent_uuid ELSE	
+(FIRST_VALUE(fa.initiator_uuid) OVER (PARTITION BY fa.ticket_uuid ORDER BY fa.action_timestamp DESC)) END) AS csat_agent_uuid,	
+(CASE WHEN (FIRST_VALUE(fa.action_timestamp) OVER (PARTITION BY fa.ticket_uuid ORDER BY fa.action_timestamp DESC)) IS NULL THEN bt.csat_timestamp ELSE	
+(FIRST_VALUE(fa.action_timestamp) OVER (PARTITION BY fa.ticket_uuid ORDER BY fa.action_timestamp DESC)) END) AS csat_solve_timestamp,	
+(CASE WHEN FIRST_VALUE(type.value) OVER (PARTITION BY type.ticket_uuid ORDER BY type.action_timestamp DESC) IS NULL THEN creation_type_uuid	
+ELSE FIRST_VALUE(type.value) OVER (PARTITION BY type.ticket_uuid ORDER BY type.action_timestamp DESC) END) AS csat_type_uuid,	
+(CASE WHEN FIRST_VALUE(esc.value) OVER (PARTITION BY esc.ticket_uuid ORDER BY esc.action_timestamp DESC) IS NULL THEN 'tier1'	
+ELSE FIRST_VALUE(esc.value) OVER (PARTITION BY esc.ticket_uuid ORDER BY esc.action_timestamp DESC) END) AS csat_tier,	
+a.first_csat_response,	
+a.final_csat_response,	
+a.first_is_this_issue_response,	
+a.final_is_this_issue_response,	
+a.csat_rating,	
+a.feedback_uuid	
+	
+FROM dim_bliss_ticket bt	
+LEFT JOIN analytics_bliss_ticket a ON bt.uuid = a.ticket_uuid	
+LEFT JOIN dim_city c ON (CASE WHEN bt.city_id IS NULL THEN bt.country_uuid ELSE TO_CHAR(bt.city_id) END) = (CASE WHEN bt.city_id IS NULL THEN c.country_uuid ELSE TO_CHAR(c.city_id) END)	
+AND NOT (c.mega_region IS NULL OR c.region IS NULL OR c.sub_region IS NULL)	
+	
+LEFT JOIN actions fa ON a.ticket_uuid = fa.ticket_uuid	
+AND fa.type = 'update_status' AND fa.value = 'solved'	
+AND fa.action_timestamp < a.csat_rating_timestamp	
+	
+LEFT JOIN actions type ON a.ticket_uuid = type.ticket_uuid	
+AND type.type = 'update_type'	
+AND type.action_timestamp < a.csat_rating_timestamp	
+	
+LEFT JOIN actions esc ON a.ticket_uuid = esc.ticket_uuid	
+AND esc.type = 'escalation'	
+AND esc.action_timestamp < a.csat_rating_timestamp	
+	
+WHERE TRUE	
+AND ((bt.create_timestamp BETWEEN (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 weeks')::INTERVAL) AND (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL))	
+OR (bt.update_timestamp >= (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 weeks')::INTERVAL) AND bt.create_timestamp <= (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL)))	
+AND NOT (bt.status IN ('solved', 'response_requested','archived') AND a.count_agent_messages = 0 AND a.count_agent_messages IS NOT NULL) -- exclude solves without replies	
+AND (region IN ('APACX - ANZ') OR country_id = 85)	
+AND (is_csr_ticket IS FALSE OR (is_csr_ticket IS TRUE and a.count_agent_messages > 0 and a.count_user_messages > 0)) -- excludes outbounds 2018/01/08	
+AND (a.csat_rating IS NOT NULL OR bt.is_satisfied IS NOT NULL)	
+AND (bt.modality != 'in_person' OR bt.modality IS NULL) -- remove GLH	
+	
+),	
+	
+zendesk AS (	
+SELECT DISTINCT	
+JANZ' AS region,	
+Zendesk' AS platform,	
+zendesk_id,	
+(CASE WHEN zd.city_id IS NULL THEN 'Unassignable'	
+    WHEN country_name = 'Japan' THEN 'Japan Office'	
+    WHEN country_name = 'New Zealand' THEN 'New Zealand Office'	
+    WHEN city_name IN ('Sydney','Newcastle','Canberra','Wollongong','Byron Bay') THEN 'Sydney Office'	
+    WHEN city_name IN ('Melbourne','Geelong','Hobart','Mornington Peninsula') THEN 'Melbourne Office'	
+    WHEN city_name IN ('Brisbane','Gold Coast','Townsville','Sunshine Coast','Toowoomba','Cairns') THEN 'Brisbane Office'	
+    WHEN city_name IN ('Perth','Adelaide','Bunbury') THEN 'Perth Office'	
+    ELSE 'Other' END) AS office,	
+city_name,	
+EATS' AS tier,	
+(CASE WHEN requester_role IN ('Rider', 'Eater', 'Client', 'Recipient', 'eater') THEN 'Eater'	
+    WHEN requester_role IN ('Restaurant', 'Fresh Partner','Delivery Business', 'Restaurant Operations', 'restaurant', 'U4B Business User') THEN 'Restaurants'	
+    WHEN requester_role IN ('Driver', 'Courier', 'Partner', 'driver', 'courier', 'Vehicle Solutions') THEN 'Courier'	
+    ELSE requester_role END) AS requester_type,	
+(CASE WHEN (assignee IN ('Rika Kondo','Shumpei Sato','Fumiya Yonemura','Shinya Nishikawa','Naho Nakagawa','Mai Kaneko') OR ba.email IN ('rkondo@ext.uber.com','ssato@ext.uber.com','fyonem@ext.uber.com','snishi@ext.uber.com','nnakag@ext.uber.com','mkanek@ext.uber.com')
+OR (zd.tags ILIKE '%jpn_uet%')) THEN 'PMT'
+	WHEN (LOWER(site_code) ILIKE '%ops_ubr_anz%' OR (c.country_id = 85 AND NOT (assignee IN ('Rika Kondo','Shumpei Sato','Fumiya Yonemura','Shinya Nishikawa','Naho Nakagawa','Mai Kaneko') OR
+ba.email IN ('rkondo@ext.uber.com','ssato@ext.uber.com','fyonem@ext.uber.com','snishi@ext.uber.com','nnakag@ext.uber.com','mkanek@ext.uber.com') OR (zd.tags ILIKE '%jpn_uet%' AND zd.tags ILIKE '%japan_restaurant_ops%'))) OR	
+LOWER(site_code) ILIKE '%glh%' OR zd.tags ILIKE '%anz_restaurant_csr%' OR site_code IS NULL OR (zd.tags ILIKE '%jpn_uet%' AND zd.tags ILIKE '%japan_restaurant_ops%' AND (zd.tags ILIKE '%level_2%' OR zd.tags ILIKE '%japan_restaurant_csr%')))	
+THEN 'City Teams'	
+	WHEN site_code IN ('COE_UBR_SYD','COE_UBR_MNL') THEN site_name
+	WHEN site_code ILIKE '%BPO%' THEN 'BPO'
+	ELSE 'City Teams' END) AS cohort,
+	
+--timestamps
+zd.ticket_created_at,
+zd.ticket_solved_at,
+zd.requester_id,
+	
+--ticket data
+first_reply_time,
+full_resolution_time,
+zd.status,
+survey_score,
+replies
+	
+FROM api_zendesk_tickets zd	
+    JOIN dim_city c ON c.city_id = zd.city_id	
+    LEFT JOIN satisfaction_zendesk_csat sat ON sat.ticket_id = zd.zendesk_id	
+    LEFT JOIN dim_bliss_agent ba ON zd.assignee_uber_uuid = ba.user_uuid	
+	
+WHERE (zd.ticket_created_at BETWEEN (DATE_TRUNC('week', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 WEEKS')::INTERVAL) AND (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL)	
+OR zd.ticket_solved_at BETWEEN (DATE_TRUNC('week', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 WEEKS')::INTERVAL) AND (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL))	
+AND (NOT (zd.status IN ('Solved', 'Closed') AND replies = 0) or zd.status is null)	
+AND ((issue_type NOT ILIKE '%positive%' AND issue_type NOT ILIKE '%spam%') OR issue_type IS NULL)	
+AND tags NOT ILIKE '%outbound_ticket%'	
+AND tags NOT ILIKE '%inperson%' -- exclude greenlight visits 2018/01/08 change	
+AND (zd.tags ILIKE '%rops_%' OR zd.tags ILIKE '%restaurant_operations%' OR zd.tags ILIKE '%anz_uet%' OR zd.tags ILIKE '%jpn_uet%' OR ((zd.tags ILIKE '%delivery_business%' OR zd.tags ILIKE '%eats_support%') AND country_id = 85) OR zd.tags ILIKE '%eats_support%')	
+AND (region IN ('APACX - ANZ') OR country_id = 85)	
+),	
+
+/*	
+bliss_view AS (	
+SELECT	
+bv.view_uuid,	
+bv.ticket_uuid,	
+bv.agent_uuid,	
+bv.duration_seconds,	
+bv.type_uuid,	
+bv.begin_timestamp,	
+bv.end_timestamp,	
+bv.tier,	
+bv.is_direct_access	
+	
+FROM fact_bliss_view bv	
+	
+WHERE TRUE	
+AND bv.begin_timestamp >= '4/6/2017'	
+AND bv.begin_timestamp >= (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 WEEKS')::INTERVAL)	
+AND bv.end_timestamp < (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL)	
+AND bv.ticket_uuid != 'end of queue'	
+),	
+	
+handle_agents AS (	
+SELECT DISTINCT	
+ticket_uuid,	
+initiator_uuid	
+	
+FROM fact_bliss_action fa	
+JOIN bliss b ON fa.ticket_uuid = b.uuid AND fa.action_timestamp <= b.close_timestamp AND fa.action_timestamp > b.create_timestamp	
+	
+WHERE TRUE	
+AND fa.action_timestamp BETWEEN (DATE_TRUNC('week', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 WEEKS')::INTERVAL) AND (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL)	
+AND fa.initiator_type = 'agent'	
+),	
+	
+adjusted_bliss_view AS (	
+SELECT	
+bv.ticket_uuid,	
+bv.begin_timestamp,	
+bv.end_timestamp,	
+bv.type_uuid,	
+bv.agent_uuid,	
+bv.tier,	
+COUNT(DISTINCT bv.view_uuid) AS views,	
+COUNT(DISTINCT shadow) AS duplicate_views,	
+COUNT(DISTINCT (CASE WHEN is_direct_access IS TRUE THEN view_uuid ELSE NULL END)) AS cherrypicks,	
+COUNT(DISTINCT (CASE WHEN shadow_access IS TRUE THEN view_uuid ELSE NULL END)) AS shadow_picks,	
+ROUND(SUM(duplicate_time)/60,2) AS duplicate_time,	
+ROUND(SUM(bv.duration_seconds)/60,2) AS view_time_min	
+	
+FROM (	
+SELECT DISTINCT	
+bv.view_uuid,	
+shadow,	
+bv.ticket_uuid,	
+bv.is_direct_access,	
+shadow_access,	
+bv.agent_uuid,	
+bv.duration_seconds,	
+bv.type_uuid,	
+bv.begin_timestamp,	
+bv.end_timestamp,	
+bv.tier,	
+	
+-- find concurrent and non-concurrent time (e.g. when agent has two open windows, should only count time once)	
+(CASE WHEN is_shadow IS NOT NULL THEN (bv.duration_seconds)	
+WHEN LAG(bv.end_timestamp) OVER (PARTITION BY bv.agent_uuid,is_shadow ORDER BY bv.end_timestamp) > bv.begin_timestamp	
+THEN (bv.duration_seconds - EXTRACT(EPOCH FROM (bv.end_timestamp - LAG(bv.end_timestamp) OVER (PARTITION BY bv.agent_uuid,is_shadow ORDER BY bv.end_timestamp))))	
+ELSE 0 END) AS duplicate_time	
+	
+	
+FROM bliss_view bv	
+JOIN handle_agents ha ON bv.ticket_uuid = ha.ticket_uuid AND bv.agent_uuid = ha.initiator_uuid	
+-- check if ticket view was shadowed by another view	
+LEFT JOIN (SELECT	
+bvv.view_uuid AS shadow,	
+bvv.ticket_uuid AS is_shadow,	
+bvv.is_direct_access AS shadow_access,	
+bvv.agent_uuid,	
+bvv.begin_timestamp,	
+bvv.end_timestamp	
+FROM bliss_view bvv	
+) bv_aux ON bv_aux.agent_uuid = bv.agent_uuid AND bv_aux.begin_timestamp < bv.begin_timestamp AND bv_aux.end_timestamp > bv.end_timestamp	
+) bv	
+	
+GROUP BY 1,2,3,4,5,6	
+),	
+*/	
+
+inflows AS (	
+SELECT DISTINCT	
+region,	
+platform,	
+TO_CHAR(DATE_TRUNC('week', bt.create_timestamp), 'YYYY/MM/DD') AS week,
+office,	
+city_name,	
+tier,
+requester_type,
+cohort,
+bliss_ticket_tier,
+COUNT(DISTINCT bt.requester_uuid) AS unique_contacts,
+COUNT(DISTINCT bt.uuid) AS inflows,
+0 AS solves,
+0 AS touches,
+COUNT(DISTINCT CASE WHEN (bt.status = 'open' OR (bt.status NOT IN ('open') AND DATE_TRUNC('week',bt.close_timestamp) >  DATE_TRUNC('week',bt.create_timestamp))) THEN bt.uuid ELSE NULL END) AS backlogs,
+0 AS open_touches,
+0 AS awaiting_reply_touches,
+0 AS solve_touches,
+0 AS skips,
+0 AS saved_replies,
+0 AS total_actions,	
+--	0 AS views,
+--	0 AS cherrypicks,
+--  0 AS view_time_minutes,	
+	0 AS csat_1_yesses,
+	0 AS csat_1_responses,
+0 AS csat_2_first_count,	
+0 AS csat_2_first_resolution_count,	
+0 AS csat_2_final_count,	
+0 AS csat_2_final_resolution_count,	
+0 AS csat_2_rating_count,	
+0 AS csat_2_rating_sum,	
+0 AS total_5_rating,	
+0 AS total_4_rating,	
+0 AS total_3_rating,	
+0 AS total_2_rating,	
+0 AS total_1_rating,	
+COUNT(DISTINCT CASE WHEN time_to_first_message_minutes/60 < 1 THEN bt.uuid ELSE NULL END) AS perc_1hr_response_tix,
+COUNT(DISTINCT CASE WHEN time_to_first_message_minutes/60 < 6 THEN bt.uuid ELSE NULL END) AS perc_6hr_response_tix,
+COUNT(DISTINCT CASE WHEN time_to_first_message_minutes/60 < 24 THEN bt.uuid ELSE NULL END) AS perc_24hr_response_tix,
+COUNT(DISTINCT CASE WHEN time_to_close_minutes/60 < 24 AND bt.status IN ('solved','response_requested','archived') THEN bt.uuid ELSE NULL END) AS perc_24hr_resolution_tix,
+0 AS one_touch_tix,
+0 AS trips
+	
+FROM bliss bt
+	
+WHERE TRUE	
+AND bt.create_timestamp BETWEEN (DATE_TRUNC('week', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 WEEKS')::INTERVAL)	
+AND (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL)	
+	
+GROUP BY 1,2,3,4,5,6,7,8,9	
+	
+),	
+	
+zd_inflows AS (	
+SELECT DISTINCT	
+region,	
+platform,	
+TO_CHAR(DATE_TRUNC('week', zd.ticket_created_at), 'YYYY/MM/DD') AS week,	
+office,	
+city_name,	
+tier,
+requester_type,
+cohort,
+NULL AS bliss_ticket_tier,
+COUNT(DISTINCT zd.requester_id) AS unique_contacts,
+COUNT(DISTINCT zd.zendesk_id) AS inflows,
+0 AS solves,
+0 AS touches,
+COUNT(DISTINCT CASE WHEN (zd.status IN ('New','Open','Pending') OR (zd.status NOT IN ('New','Open','Pending') AND DATE_TRUNC('week',zd.ticket_solved_at) > DATE_TRUNC('week',zd.ticket_created_at))) THEN zd.zendesk_id ELSE NULL END) AS backlogs,
+0 AS open_touches,
+0 AS awaiting_reply_touches,
+0 AS solve_touches,
+0 AS skips,
+0 AS saved_replies,
+0 AS total_actions,	
+--	0 AS views,
+--	0 AS cherrypicks,
+--  0 AS view_time_minutes,	
+0 AS csat_1_yesses,
+0 AS csat_1_responses,
+0 AS csat_2_first_count,	
+0 AS csat_2_first_resolution_count,	
+0 AS csat_2_final_count,	
+0 AS csat_2_final_resolution_count,	
+0 AS csat_2_rating_count,	
+0 AS csat_2_rating_sum,	
+0 AS total_5_rating,	
+0 AS total_4_rating,	
+0 AS total_3_rating,	
+0 AS total_2_rating,	
+0 AS total_1_rating,	
+COUNT(DISTINCT CASE WHEN ((first_reply_time / 60) < 1) THEN zd.zendesk_id ELSE NULL END) AS perc_1hr_response_tix,
+COUNT(DISTINCT CASE WHEN ((first_reply_time / 60) < 6) THEN zd.zendesk_id ELSE NULL END) AS perc_6hr_response_tix,
+COUNT(DISTINCT CASE WHEN ((first_reply_time / 60) < 24) THEN zd.zendesk_id ELSE NULL END) AS perc_24hr_response_tix,
+COUNT(DISTINCT CASE WHEN ((full_resolution_time / 60) < 24) AND status IN ('Solved', 'Closed') THEN zd.zendesk_id ELSE NULL END) AS perc_24hr_resolution_tix,
+0 AS one_touch_tix,
+0 AS trips
+	
+FROM zendesk zd
+	
+WHERE TRUE
+AND zd.ticket_created_at BETWEEN (DATE_TRUNC('week', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 WEEKS')::INTERVAL)
+AND (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL)	
+	
+GROUP BY 1,2,3,4,5,6,7,8,9	
+),	
+	
+outflows AS (	
+SELECT DISTINCT	
+region,	
+platform,	
+TO_CHAR(DATE_TRUNC('week', bt.close_timestamp), 'YYYY/MM/DD') AS week,
+office,	
+city_name,	
+tier,
+requester_type,
+cohort,
+bliss_ticket_tier,	
+0 AS unique_contacts,
+0 AS inflows,
+COUNT(DISTINCT bt.uuid) AS solves,
+0 AS touches,
+0 AS backlogs,
+0 AS open_touches,
+0 AS awaiting_reply_touches,
+0 AS solve_touches,
+0 AS skips,
+0 AS saved_replies,
+0 AS total_actions,	
+--	0 AS views,
+--	0 AS cherrypicks,
+--  0 AS view_time_minutes,	
+0 AS csat_1_yesses,
+0 AS csat_1_responses,
+0 AS csat_2_first_count,	
+0 AS csat_2_first_resolution_count,	
+0 AS csat_2_final_count,	
+0 AS csat_2_final_resolution_count,	
+0 AS csat_2_rating_count,	
+0 AS csat_2_rating_sum,	
+0 AS total_5_rating,	
+0 AS total_4_rating,	
+0 AS total_3_rating,	
+0 AS total_2_rating,	
+0 AS total_1_rating,	
+0 AS perc_1hr_response_tix,	
+0 AS perc_6hr_response_tix,	
+0 AS perc_24hr_response_tix,	
+0 AS perc_24hr_resolution_tix,	
+COUNT(DISTINCT CASE WHEN count_agent_messages = 1 THEN bt.uuid ELSE NULL END) AS one_touch_tix,	
+0 AS trips
+	
+FROM bliss bt
+	
+WHERE TRUE	
+AND bt.close_timestamp BETWEEN (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 WEEKS')::INTERVAL)	
+AND (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL)	
+AND count_agent_messages > 0	
+AND bt.status IN ('solved','response_requested','archived')	
+	
+GROUP BY 1,2,3,4,5,6,7,8,9	
+	
+),	
+	
+zd_outflows AS (	
+SELECT DISTINCT	
+region,	
+platform,	
+TO_CHAR(DATE_TRUNC('week', zd.ticket_solved_at), 'YYYY/MM/DD') AS week,	
+office,	
+city_name,	
+tier,
+requester_type,
+cohort,
+NULL AS bliss_ticket_tier,
+0 AS unique_contacts,
+0 AS inflows,
+COUNT(DISTINCT zd.zendesk_id) AS solves,
+0 AS touches,
+0 AS backlogs,
+0 AS open_touches,
+0 AS awaiting_reply_touches,
+0 AS solve_touches,
+0 AS skips,
+0 AS saved_replies,
+0 AS total_actions,	
+--	0 AS views,
+--	0 AS cherrypicks,
+--  0 AS view_time_minutes,	
+	COUNT(DISTINCT (CASE WHEN survey_score = 2 THEN zendesk_id ELSE NULL END)) AS csat_1_yesses,
+	COUNT(DISTINCT (CASE WHEN survey_score IS NOT NULL THEN zendesk_id ELSE NULL END)) AS csat_1_responses,
+0 AS csat_2_first_count,	
+0 AS csat_2_first_resolution_count,	
+0 AS csat_2_final_count,	
+0 AS csat_2_final_resolution_count,	
+0 AS csat_2_rating_count,	
+0 AS csat_2_rating_sum,	
+0 AS total_5_rating,	
+0 AS total_4_rating,	
+0 AS total_3_rating,	
+0 AS total_2_rating,	
+0 AS total_1_rating,	
+0 AS perc_1hr_resp_tix,
+0 AS perc_6hr_resp_tix,
+0 AS perc_24hr_resp_tix,
+0 AS perc_24hr_reso_tix,
+COUNT(DISTINCT CASE WHEN replies = 1 THEN zd.zendesk_id ELSE NULL END) AS one_touch_tix,	
+0 AS trips
+	
+FROM zendesk zd
+	
+WHERE TRUE
+AND zd.ticket_solved_at BETWEEN (DATE_TRUNC('week', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 WEEKS')::INTERVAL)
+AND (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL)	
+AND replies > 0	
+	
+GROUP BY 1,2,3,4,5,6,7,8,9	
+	
+),	
+	
+touches AS (	
+SELECT DISTINCT	
+region,	
+platform,	
+TO_CHAR(DATE_TRUNC('week', fb.action_timestamp), 'YYYY/MM/DD') AS week,
+office,	
+city_name,	
+bt.tier,
+requester_type,
+(CASE WHEN site_code IS NULL THEN 'Unanswered'
+	WHEN initiator_uuid IN ('223c3b70-1474-44b9-acf3-0fdf6db4cbd5','32bdd7a5-577d-479e-bccb-1a851e2d99e1') THEN 'Automation'  --Cliff, Paul
+	WHEN site_code IN ('COE_UBR_SYD','COE_UBR_MNL') THEN site_name
+	WHEN site_code ILIKE '%BPO%' THEN 'BPO'
+	ELSE 'City Teams' END) AS cohort,
+bliss_ticket_tier,
+0 AS unique_contacts,
+0 AS inflows,
+0 AS solves,
+COUNT(DISTINCT (CASE WHEN fb.type = 'message' THEN fb.uuid ELSE NULL END)) AS touches,
+0 AS backlogs,
+COUNT(DISTINCT (CASE WHEN fb.type = 'update_status' AND fb.value = 'open' THEN fb.uuid ELSE NULL END)) AS open_touches,
+COUNT(DISTINCT (CASE WHEN fb.type = 'update_status' AND fb.value = 'response_requested' THEN fb.uuid ELSE NULL END)) AS awaiting_reply_touches,
+COUNT(DISTINCT (CASE WHEN fb.type = 'update_status' AND fb.value = 'solved' THEN fb.uuid ELSE NULL END)) AS solve_touches,
+COUNT(DISTINCT (CASE WHEN fb.type = 'skip' THEN fb.uuid ELSE NULL END)) AS skips,
+COUNT(DISTINCT (CASE WHEN (fb.type = 'message' AND sr.uuid IS NOT NULL) THEN fb.uuid ELSE NULL END)) AS saved_replies,
+COUNT(DISTINCT (CASE WHEN (fb.type != 'skip') THEN fb.action_timestamp ELSE NULL END)) AS total_actions,	
+--	0 AS views,
+--	0 AS cherrypicks,
+--  0 AS view_time_minutes,	
+0 AS csat_1_yesses,
+0 AS csat_1_responses,
+0 AS csat_2_first_count,	
+0 AS csat_2_first_resolution_count,	
+0 AS csat_2_final_count,	
+0 AS csat_2_final_resolution_count,	
+0 AS csat_2_rating_count,	
+0 AS csat_2_rating_sum,	
+0 AS total_5_rating,	
+0 AS total_4_rating,	
+0 AS total_3_rating,	
+0 AS total_2_rating,	
+0 AS total_1_rating,	
+0 AS perc_1hr_response_tix,	
+0 AS perc_6hr_response_tix,	
+0 AS perc_24hr_response_tix,	
+0 AS perc_24hr_resolution_tix,	
+0 AS one_touch_tix,	
+0 AS trips
+	
+FROM actions fb
+    JOIN bliss bt ON fb.ticket_uuid = bt.uuid
+	JOIN dim_bliss_agent ba ON fb.initiator_uuid = ba.uuid
+	LEFT JOIN dim_bliss_saved_reply sr on fb.value = sr.uuid
+	
+WHERE TRUE	
+AND fb.action_timestamp BETWEEN (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 WEEKS')::INTERVAL)	
+AND (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL)	
+AND initiator_type = 'agent'	
+AND bt.status IN ('solved','response_requested','archived','open')	
+	
+GROUP BY 1,2,3,4,5,6,7,8,9	
+),	
+
+/*	
+views AS (	
+SELECT DISTINCT	
+region,	
+platform,	
+TO_CHAR(DATE_TRUNC('week', bv.end_timestamp), 'MM/DD/YYYY') AS week,
+office,	
+city_name,	
+(CASE WHEN group_uuid IN ('e5a58c0b-13d2-4d85-a2ff-5b53e8e24475') THEN 'Urgent L3/L4'
+    WHEN group_uuid IN ('c4645dbe-67da-4535-97d7-d73feaf8a92c', -- Safety / IRT - Accidents (L1/L2)
+	                    24d6347d-eb31-4494-8402-9e5278ec238e'  -- Safety / IRT - Incidents (L1/L2)
+	) THEN 'Urgent L1/L2'
+	WHEN group_uuid IN ('8a455f79-fd89-4b16-afb9-ee35a1f04fb5', -- US IRT Urgent Investigations
+	                    382fc7df-5315-422d-a3e9-d72f99700934', -- Service Denial
+	                    e82d973c-aa08-4e4c-803b-fa4058f8086e'  -- India Program SOS
+	) THEN 'Urgent Others'
+	WHEN group_uuid IN ('8939ff21-3d8c-4c98-86f3-b9491f9bbe70', -- NYC TLC
+	                    '3ae18d53-60e2-4da0-a707-6214d64406d9', -- Activations & Docs
+                        'a72edcd0-fe01-4da3-84fe-affdcdc45585', -- Driver Signing Up	
+                        '71c2eeca-c958-42c6-8ea0-faa1bdd8376c', -- Fuel Cards	
+                        '37ab1f9e-a1bd-423e-acd2-d7f534cf7af0', -- Citations	
+                        '1cbcce6b-2466-4e2e-bf28-78aa14a637c0', -- ANZ NSW Funnel	
+                        '61d302b0-3755-4014-8545-32d933e74c28'  -- Mexico Facturas	
+    ) THEN 'Funnel'	
+    WHEN group_uuid IN ('a9930194-9d9a-4f42-be12-766e5ae7c32b') THEN 'ASR'	
+    WHEN group_uuid IN ('5cff74f3-bffb-4943-9c25-62e265776c40') THEN 'U4B'
+    WHEN group_uuid IN ('929dfdbf-7422-418f-9770-468e8658d83c', -- UberEATS Courier
+	                    'af1cab16-7f53-4ea0-9c3b-906e01b0918b', -- UberEATS Eater
+	                    'b320b20e-0e05-45c2-a878-12681093dc5c', -- UberEATS Restaurants
+	                '   025ddf94-5b53-45cc-8ad4-933d69df8fce'  -- UberEATS Account Managers
+	) THEN 'EATS'
+	WHEN bv.tier = 'tier2' THEN 'Level 2' ELSE 'Level 1' END) AS tier,
+	requester_type,
+(CASE WHEN site_code IS NULL THEN 'Unanswered'
+    WHEN agent_uuid IN ('223c3b70-1474-44b9-acf3-0fdf6db4cbd5','32bdd7a5-577d-479e-bccb-1a851e2d99e1') THEN 'Automation'  --Cliff, Paul
+	WHEN site_code IN ('COE_UBR_SYD','COE_UBR_MNL') THEN site_name
+	WHEN site_code ILIKE '%BPO%' THEN 'BPO'
+	ELSE 'City Team' END) AS cohort,
+0 AS inflows,
+0 AS solves,
+0 AS touches,
+0 AS backlogs,
+0 AS open_touches,
+0 AS awaiting_reply_touches,
+0 AS solve_touches,
+0 AS skips,	
+0 AS saved_replies,
+0 AS total_actions,	
+SUM(views - duplicate_views) AS views,
+SUM(cherrypicks - shadow_picks) AS cherrypicks,
+ROUND(SUM(view_time_min - duplicate_time))::INT AS view_time_minutes,	
+0 AS csat_1_yesses,
+0 AS csat_1_responses,
+0 AS csat_2_first_count,	
+0 AS csat_2_first_resolution_count,	
+0 AS csat_2_final_count,	
+0 AS csat_2_final_resolution_count,	
+0 AS csat_2_rating_count,	
+0 AS csat_2_rating_sum,	
+0 AS total_5_rating,	
+0 AS total_4_rating,	
+0 AS total_3_rating,	
+0 AS total_2_rating,	
+0 AS total_1_rating,	
+0 AS perc_1hr_response_tix,	
+0 AS perc_6hr_response_tix,	
+0 AS perc_24hr_response_tix,	
+0 AS perc_24hr_resolution_tix,	
+0 AS one_touch_tix,	
+0 AS trips
+	
+FROM adjusted_bliss_view bv	
+    JOIN bliss bt ON bt.uuid = bv.ticket_uuid	
+    JOIN dim_bliss_agent ba ON LOWER(bv.agent_uuid) = LOWER(ba.uuid)	
+    JOIN dim_bliss_ticket_type dt ON bv.type_uuid = dt.uuid	
+	
+WHERE TRUE	
+AND NOT (bv.begin_timestamp > bt.close_timestamp AND bt.status IN ('archived','solved','response_requested'))	
+	
+GROUP BY 1,2,3,4,5,6,7,8	
+),	
+*/	
+
+csat AS (	
+SELECT DISTINCT	
+region,	
+platform,	
+TO_CHAR(DATE_TRUNC('week', bc.csat_solve_timestamp), 'YYYY/MM/DD') AS week,
+office,	
+city_name,	
+(CASE WHEN group_uuid IN ('e5a58c0b-13d2-4d85-a2ff-5b53e8e24475') THEN 'Urgent L3/L4'
+    WHEN group_uuid IN ('c4645dbe-67da-4535-97d7-d73feaf8a92c', -- Safety / IRT - Accidents (L1/L2)
+	                    '24d6347d-eb31-4494-8402-9e5278ec238e'  -- Safety / IRT - Incidents (L1/L2)
+	) THEN 'Urgent L1/L2'
+	WHEN group_uuid IN ('8a455f79-fd89-4b16-afb9-ee35a1f04fb5', -- US IRT Urgent Investigations
+	                    '382fc7df-5315-422d-a3e9-d72f99700934', -- Service Denial
+	                    'e82d973c-aa08-4e4c-803b-fa4058f8086e'  -- India Program SOS
+	) THEN 'Urgent Others'
+	WHEN group_uuid IN ('8939ff21-3d8c-4c98-86f3-b9491f9bbe70', -- NYC TLC
+	                    '3ae18d53-60e2-4da0-a707-6214d64406d9', -- Activations & Docs
+                        'a72edcd0-fe01-4da3-84fe-affdcdc45585', -- Driver Signing Up	
+                        '71c2eeca-c958-42c6-8ea0-faa1bdd8376c', -- Fuel Cards	
+                        '37ab1f9e-a1bd-423e-acd2-d7f534cf7af0', -- Citations	
+                        '1cbcce6b-2466-4e2e-bf28-78aa14a637c0', -- ANZ NSW Funnel	
+                        '61d302b0-3755-4014-8545-32d933e74c28'  -- Mexico Facturas	
+    ) THEN 'Funnel'	
+    WHEN group_uuid IN ('a9930194-9d9a-4f42-be12-766e5ae7c32b') THEN 'ASR'	
+	WHEN group_uuid IN ('5cff74f3-bffb-4943-9c25-62e265776c40') THEN 'U4B'
+	WHEN group_uuid IN ('929dfdbf-7422-418f-9770-468e8658d83c', -- UberEATS Courier
+	                    'af1cab16-7f53-4ea0-9c3b-906e01b0918b', -- UberEATS Eater
+	                    'b320b20e-0e05-45c2-a878-12681093dc5c', -- UberEATS Restaurants
+	                    '025ddf94-5b53-45cc-8ad4-933d69df8fce'  -- UberEATS Account Managers
+	) THEN 'EATS'
+	WHEN csat_tier = 'tier2' THEN 'Level 2' ELSE 'Level 1' END) AS tier,
+(CASE WHEN group_uuid IN ('af1cab16-7f53-4ea0-9c3b-906e01b0918b') THEN 'Eater'
+	WHEN group_uuid IN ('929dfdbf-7422-418f-9770-468e8658d83c') THEN 'Courier'
+	WHEN group_uuid IN ('b320b20e-0e05-45c2-a878-12681093dc5c') OR ancestor_1_name = 'Restaurants' THEN 'Restaurants'
+    WHEN ancestor_1_name IS NOT NULL AND ancestor_1_name != 'Other' THEN ancestor_1_name	
+	WHEN requester_type IN ('eater','rider','client') THEN 'Rider'
+	ELSE 'Driver' END) AS requester_type,
+(CASE WHEN site_code IS NULL THEN 'Unanswered'
+    WHEN csat_agent_uuid IN ('223c3b70-1474-44b9-acf3-0fdf6db4cbd5','32bdd7a5-577d-479e-bccb-1a851e2d99e1') THEN 'Automation'  --Cliff, Paul
+	WHEN site_code IN ('COE_UBR_SYD','COE_UBR_MNL') THEN site_name
+	WHEN site_code ILIKE '%BPO%' THEN 'BPO'
+	ELSE 'City Teams' END) AS cohort,
+(CASE WHEN csat_tier = 'tier1' THEN 'Tier 1' ELSE 'Tier 2' END) AS bliss_ticket_tier,
+0 AS unique_contacts,
+0 AS inflows,
+0 AS solves,
+0 AS touches,
+0 AS backlogs,
+0 AS open_touches,
+0 AS awaiting_reply_touches,
+0 AS solve_touches,
+0 AS skips,
+0 AS saved_replies,
+0 AS total_actions,	
+--	0 AS views,
+--	0 AS cherrypicks,
+--  0 AS view_time_minutes,	
+COUNT(DISTINCT (CASE WHEN is_satisfied IS TRUE THEN bc.uuid ELSE NULL END)) AS csat_1_yesses,
+COUNT(DISTINCT (CASE WHEN is_satisfied IS NOT NULL THEN bc.uuid ELSE NULL END)) AS csat_1_responses,
+COUNT(DISTINCT (CASE WHEN first_csat_response IS FALSE OR first_csat_response IS TRUE THEN bc.uuid ELSE NULL END)) AS csat_2_first_count,	
+COUNT(DISTINCT (CASE WHEN first_csat_response IS FALSE OR first_is_this_issue_response IS FALSE THEN bc.uuid ELSE NULL END)) AS csat_2_first_resolution_count,	
+COUNT(DISTINCT (CASE WHEN final_csat_response IS FALSE OR final_csat_response IS TRUE THEN bc.uuid ELSE NULL END)) AS csat_2_final_count,	
+COUNT(DISTINCT (CASE WHEN final_csat_response IS FALSE OR final_is_this_issue_response IS FALSE THEN bc.uuid ELSE NULL END)) AS csat_2_final_resolution_count,	
+COUNT(DISTINCT (CASE WHEN csat_rating IS NOT NULL THEN bc.uuid ELSE NULL END)) AS csat_2_rating_count,	
+SUM(CASE WHEN csat_rating IS NOT NULL THEN csat_rating ELSE 0 END) AS csat_2_rating_sum,	
+COUNT(DISTINCT (CASE WHEN csat_rating = 5 THEN bc.uuid ELSE NULL END)) AS total_5_rating,	
+COUNT(DISTINCT (CASE WHEN csat_rating = 4 THEN bc.uuid ELSE NULL END)) AS total_4_rating,	
+COUNT(DISTINCT (CASE WHEN csat_rating = 3 THEN bc.uuid ELSE NULL END)) AS total_3_rating,	
+COUNT(DISTINCT (CASE WHEN csat_rating = 2 THEN bc.uuid ELSE NULL END)) AS total_2_rating,	
+COUNT(DISTINCT (CASE WHEN csat_rating = 1 THEN bc.uuid ELSE NULL END)) AS total_1_rating,	
+0 AS perc_1hr_response_tix,	
+0 AS perc_6hr_response_tix,	
+0 AS perc_24hr_response_tix,	
+0 AS perc_24hr_resolution_tix,	
+0 AS one_touch_tix,	
+0 AS trips
+	
+FROM bliss_csat bc
+    JOIN dim_bliss_ticket_type dt ON dt.uuid = bc.csat_type_uuid
+	JOIN dim_bliss_agent ba ON bc.csat_agent_uuid = ba.uuid
+	
+WHERE TRUE	
+AND (bc.csat_solve_timestamp BETWEEN (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 WEEKS')::INTERVAL)	
+AND (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL))	
+AND NOT (ancestor_2_uuid = 'f20b7a2c-cb69-430b-8358-7d16cd705b64' AND ancestor_2_uuid IS NOT NULL) -- exclude eng test contacts	
+/* 2018 changes	
+AND NOT ((ancestor_4_uuid = 'e8cc0caa-d594-4084-9049-fc8e67ccee83' AND ancestor_4_uuid IS NOT NULL) -- positive feedback	
+OR (bc.type_uuid = '8128df86-def4-421c-98cd-c4b8cc0bf047' AND bc.type_uuid IS NOT NULL)  -- positive co-rider	
+OR (dt.name ILIKE '%duplicate contact%' AND dt.name IS NOT NULL)  -- exclude duplicate tickets	
+OR (dt.name = 'Spam' AND dt.name IS NOT NULL)) -- exclude spam tickets */	
+	
+GROUP BY 1,2,3,4,5,6,7,8,9	
+),	
+	
+trips AS (	
+SELECT DISTINCT	
+JANZ' AS region,	
+(CASE WHEN product_type IN ('UberEATS Marketplace (order)','UberEATS Instant') THEN 'EATS' ELSE 'Rides' END) AS platform,	
+TO_CHAR(DATE_TRUNC('week', request_timestamp_utc), 'YYYY/MM/DD') AS week,
+(CASE WHEN t.city_id IS NULL THEN 'Unassignable'	
+    WHEN country_name = 'Japan' THEN 'Japan Office'	
+    WHEN country_name = 'New Zealand' THEN 'New Zealand Office'	
+    WHEN city_name IN ('Sydney','Newcastle','Canberra','Wollongong','Byron Bay') THEN 'Sydney Office'	
+    WHEN city_name IN ('Melbourne','Geelong','Hobart','Mornington Peninsula') THEN 'Melbourne Office'	
+    WHEN city_name IN ('Brisbane','Gold Coast','Townsville','Sunshine Coast','Toowoomba','Cairns') THEN 'Brisbane Office'	
+    WHEN city_name IN ('Perth','Adelaide','Bunbury') THEN 'Perth Office'	
+ELSE 'Other' END) AS office,	
+city_name,	
+(CASE WHEN product_type IN ('UberEATS Marketplace (order)','UberEATS Instant') THEN 'EATS' ELSE 'Rides' END) AS tier,	
+(CASE WHEN product_type IN ('UberEATS Marketplace (order)','UberEATS Instant') THEN 'EATS' ELSE 'Rides' END) AS requester_type,
+NULL AS cohort,
+NULL AS bliss_ticket_tier,
+0 AS unique_contacts,
+0 AS inflows,
+0 AS solves,
+0 AS touches,
+0 AS backlogs,
+0 AS open_touches,
+0 AS awaiting_reply_touches,
+0 AS solve_touches,
+0 AS skips,	
+0 AS saved_replies,
+0 AS total_actions,	
+--	0 AS views,
+--	0 AS cherrypicks,
+--  0 AS view_time_minutes,	
+0 AS csat_1_yesses,
+0 AS csat_1_responses,
+0 AS csat_2_first_count,	
+0 AS csat_2_first_resolution_count,	
+0 AS csat_2_final_count,	
+0 AS csat_2_final_resolution_count,	
+0 AS csat_2_rating_count,	
+0 AS csat_2_rating_sum,	
+0 AS total_5_rating,	
+0 AS total_4_rating,	
+0 AS total_3_rating,	
+0 AS total_2_rating,	
+0 AS total_1_rating,	
+0 AS perc_1hr_response_tix,	
+0 AS perc_6hr_response_tix,	
+0 AS perc_24hr_response_tix,	
+0 AS perc_24hr_resolution_tix,	
+0 AS one_touch_tix,	
+COUNT(DISTINCT (CASE WHEN product_type IN ('UberEATS Marketplace (order)','UberEATS Instant') THEN et.workflow_uuid ELSE t.uuid END)) AS trips
+	
+FROM fact_trip t	
+    LEFT JOIN fact_eats_trip et ON t.workflow_uuid = et.workflow_uuid AND delivery_status = 'completed' AND order_status = 'completed'	
+    JOIN dim_city c ON t.city_id = c.city_id	
+	
+WHERE t.request_timestamp_utc BETWEEN (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 8 WEEKS')::INTERVAL)	
+AND (DATE_TRUNC('WEEK', DATE_TRUNC('day', CURRENT_TIMESTAMP)) + ('- 1 SECOND')::INTERVAL)	
+AND (region IN ('APACX - ANZ') OR country_id = 85)	
+AND LOWER(t.global_product_name) NOT ILIKE LOWER('%UberRUSH%')	
+AND status = 'completed'	
+	
+GROUP BY 1,2,3,4,5,6,7,8	
+)	
+	
+	
+SELECT	
+o.week,	
+o.region,	
+o.office,	
+o.city_name,	
+o.platform,	
+o.tier,	
+o.requester_type,	
+o.cohort,	
+o.bliss_ticket_tier,	
+SUM(o.trips) AS trips,	
+SUM(o.unique_contacts) AS unique_contacts,	
+SUM(o.inflows) AS inflows,	
+SUM(o.solves) AS solves,	
+SUM(o.touches) AS replies,	
+SUM(o.backlogs) AS backlogs,	
+SUM(o.open_touches) AS open_touches,	
+SUM(o.awaiting_reply_touches) AS awaiting_reply_touches,	
+SUM(o.solve_touches) AS solve_touches,	
+SUM(o.skips) AS skips,	
+SUM(o.saved_replies) AS saved_replies,	
+SUM(o.total_actions) AS actions,	
+--SUM(o.views) AS views,	
+--SUM(o.cherrypicks) AS cherrypicks,	
+--SUM(o.view_time_minutes) AS view_time_hours,	
+SUM(o.csat_1_yesses) AS csat_1_yesses,	
+SUM(o.csat_1_responses) AS csat_1_responses,	
+SUM(o.csat_2_first_count) AS csat_2_first_count,	
+SUM(o.csat_2_first_resolution_count) AS csat_2_first_resolution_count,	
+SUM(o.csat_2_final_count) AS csat_2_final_count,	
+SUM(o.csat_2_final_resolution_count) AS csat_2_final_resolution_count,	
+SUM(o.csat_2_rating_count) AS csat_2_rating_count,	
+SUM(o.csat_2_rating_sum) AS csat_2_rating_sum,	
+SUM(o.total_5_rating) AS total_5_rating,	
+SUM(o.total_4_rating) AS total_4_rating,	
+SUM(o.total_3_rating) AS total_3_rating,	
+SUM(o.total_2_rating) AS total_2_rating,	
+SUM(o.total_1_rating) AS total_1_rating,	
+SUM(o.perc_1hr_response_tix) AS perc_1hr_response_tix,	
+SUM(o.perc_6hr_response_tix) AS perc_6hr_response_tix,	
+SUM(o.perc_24hr_response_tix) AS perc_24hr_response_tix,	
+SUM(o.perc_24hr_resolution_tix) AS perc_24hr_resolution_tix,	
+SUM(o.one_touch_tix) AS one_touch_tix	
+	
+FROM (	
+(SELECT * FROM inflows)        UNION ALL	
+(SELECT * FROM outflows)       UNION ALL	
+(SELECT * FROM touches)        UNION ALL	
+--     (SELECT * FROM views)          UNION ALL	
+(SELECT * FROM csat)           UNION ALL	
+(SELECT * FROM trips)          UNION ALL	
+(SELECT * FROM zd_inflows)     UNION ALL	
+(SELECT * FROM zd_outflows)	
+) o	
+	
+GROUP BY 1,2,3,4,5,6,7,8,9	
+ORDER BY 1,2,3,4,5,6,7,8,9	
