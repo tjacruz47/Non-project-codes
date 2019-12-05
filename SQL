@@ -93,11 +93,10 @@ WHERE TRUE
 	AND (is_csr_ticket IS FALSE OR (is_csr_ticket IS TRUE and a.count_agent_messages > 0 and a.count_user_messages > 0)) -- excludes outbounds 2018/01/08	
 	AND (bt.modality != 'in_person' OR bt.modality IS NULL) -- remove GLH	
 	AND NOT (ancestor_2_uuid = 'f20b7a2c-cb69-430b-8358-7d16cd705b64' AND ancestor_2_uuid IS NOT NULL) -- exclude eng test contacts	
-	/* 2018-01-08	
 	AND NOT ((ancestor_4_uuid = 'e8cc0caa-d594-4084-9049-fc8e67ccee83' AND ancestor_4_uuid IS NOT NULL) -- positive feedback	
 	OR (bt.type_uuid = '8128df86-def4-421c-98cd-c4b8cc0bf047' AND bt.type_uuid IS NOT NULL)  -- positive co-rider	
 	OR (dt.name ILIKE '%duplicate contact%' AND dt.name IS NOT NULL)  -- exclude duplicate tickets	
-	OR (dt.name = 'Spam' AND dt.name IS NOT NULL)) -- exclude spam tickets*/	
+	OR (dt.name = 'Spam' AND dt.name IS NOT NULL)) -- exclude spam tickets
 ),	
 	
 bliss_csat AS (	
