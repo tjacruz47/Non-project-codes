@@ -153,7 +153,7 @@ Function RangetoHTML(rng As Range)
     'Delete the htm file we used in this function
     Kill TempFile
 
-    Set ts = Nothing
+    Set ts = Nothing 
     Set fso = Nothing
     Set TempWB = Nothing
 
