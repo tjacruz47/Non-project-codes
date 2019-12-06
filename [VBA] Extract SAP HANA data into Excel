@@ -1,0 +1,160 @@
+Sub Run_Report()
+
+    ' log in to AO, refresh data
+    Call Application.Run("SAPLogon", "DS_1", "000", "{UserID}", "{Password}")
+    Call Application.Run("SAPExecuteCommand", "Refresh")
+    
+    ' extend formula for new data
+    Sheets("Raw Data").Select
+    Range("L2:Q2").AutoFill Destination:=Range("L2:Q" & Range("J" & Rows.Count).End(xlUp).Row)
+
+    ' do text-to-columns
+    Sheets("Raw Data").Columns("G:G").TextToColumns Destination:=Range("G1"), DataType:=xlDelimited, TextQualifier:=xlDoubleQuote, ConsecutiveDelimiter:=False, Tab:=True, _
+        Semicolon:=False, Comma:=False, Space:=False, Other:=False, FieldInfo:=Array(1, 1), TrailingMinusNumbers:=True
+
+    ' refresh all pivots
+    ThisWorkbook.RefreshAll
+
+    ' save as xlsm at "About" sheet
+    Sheets("About").Select
+
+    Dim FilePath As String
+    Dim Name As String
+
+    FilePath = "C:\Users\CA009998\Documents\Work Files\Weekly Reports\Open PO Report\": Name = FilePath & "CCCBL Open PO Report " & Format(Date, "mmddyyyy") & ".xlsm"
+    ActiveWorkbook.SaveAs Filename:=Name, FileFormat:=xlOpenXMLWorkbookMacroEnabled, CreateBackup:=False
+
+    ' remove formulas and save as values in "Drop Data Here"
+    ThisWorkbook.Sheets("Raw Data").UsedRange.Value = ThisWorkbook.Sheets("Raw Data").UsedRange.Value
+
+    ' delete unnecessary sheets to save space, disable and reenable check prompts
+    Sheets(Array("Instructions", "SIMGO", "CCP", "Address")).Select
+    Application.DisplayAlerts = False
+    ActiveWindow.SelectedSheets.Delete
+    Application.DisplayAlerts = True
+
+    ' hide tab
+    Sheets("Raw Data").Visible = False
+
+    ' save as binary file at the "About" sheet
+    Sheets("About").Select
+    ThisWorkbook.Queries("Sheet1").Delete
+    ThisWorkbook.Queries("Sheet0").Delete
+    ThisWorkbook.Queries("Location").Delete
+    FilePath = "C:\Users\CA009998\Documents\Work Files\Weekly Reports\Open PO Report\": Name = FilePath & "CCCBL Open PO Report " & Format(Date, "mmddyyyy") & ".xlsb"
+    ActiveWorkbook.SaveAs Filename:=Name, FileFormat:=50, CreateBackup:=False
+
+    ' prepare email and send
+    Sheets("Open POs").Select
+
+    Dim outlookApp As Outlook.Application
+    Dim myMail As Outlook.MailItem
+    Dim LastRow As Long
+    Dim LastColumn As Long
+    Dim rng As Range
+    Dim startMsg As String
+    Dim endMsg As String
+    Dim signature As String
+
+    LastRow = Range("A4").SpecialCells(xlCellTypeLastCell).Row
+    LastColumn = Range("A4").SpecialCells(xlCellTypeLastCell).Column
+
+    Set outlookApp = New Outlook.Application
+    Set myMail = outlookApp.CreateItem(olMailItem)
+    Set rng = Sheets("Open POs").Range("A4", Sheets("Open POs").Cells(LastRow, LastColumn))
+
+    startMsg = "<BODY style=font-size:11pt;font-family:Calibri>" & _
+               "Good day, everyone." & "<br><br>" & _
+               "This sends you the Open PO Report as of today." & "<br><br>" & _
+               "<b>" & "SUMMARY AS OF " & Format(Date, "MM/DD/YYYY") & "</b><br>" & _
+               "</BODY>"
+    endMsg = "<br>" & "FSS's, please review with your technicians any PO that's been sitting for " & _
+             "<b><u>" & "more than 21 days" & "</b></u>" & _
+             ". It is best practice to receive parts through the Movilizer whenever receiving a delivery." & _
+             "<br><br><br>"
+
+    signature = "Best regards," & "<br>" & "Tim Cruz"
+
+    With Application
+        .EnableEvents = False
+        .ScreenUpdating = False
+    End With
+
+    If Weekday(Now()) = vbThursday Then
+
+    Sheets("Open POs").Select
+
+        With myMail
+            .To = ""
+            .CC = ""
+            .Subject = "CCCBL Open PO Report " & Format(Date, "mmddyyyy")
+            .Attachments.Add Name
+            .HTMLBody = startMsg & RangetoHTML(rng) & endMsg & signature
+            .Display
+        End With
+
+    End If
+
+    Set myMail = Nothing
+    Set outlookApp = Nothing
+
+    ' consider workbook saved, quit Excel
+    ThisWorkbook.Saved = True
+    Application.Quit
+
+End Sub
+
+
+Function RangetoHTML(rng As Range)
+
+    Dim fso As Object
+    Dim ts As Object
+    Dim TempFile As String
+    Dim TempWB As Workbook
+
+    TempFile = Environ$("temp") & "\" & Format(Now, "dd-mm-yy h-mm-ss") & ".htm"
+
+    'Copy the range and create a new workbook to past the data in
+    rng.Copy
+    Set TempWB = Workbooks.Add(1)
+    With TempWB.Sheets(1)
+        .Cells(1).PasteSpecial Paste:=8
+        .Cells(1).PasteSpecial xlPasteValues, , False, False
+        .Cells(1).PasteSpecial xlPasteFormats, , False, False
+        .Cells(1).Select
+        Application.CutCopyMode = False
+        On Error Resume Next
+        .DrawingObjects.Visible = True
+        .DrawingObjects.Delete
+        On Error GoTo 0
+    End With
+
+    'Publish the sheet to a htm file
+    With TempWB.PublishObjects.Add( _
+         SourceType:=xlSourceRange, _
+         Filename:=TempFile, _
+         Sheet:=TempWB.Sheets(1).Name, _
+         Source:=TempWB.Sheets(1).UsedRange.Address, _
+         HtmlType:=xlHtmlStatic)
+        .Publish (True)
+    End With
+
+    'Read all data from the htm file into RangetoHTML
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set ts = fso.GetFile(TempFile).OpenAsTextStream(1, -2)
+    RangetoHTML = ts.readall
+    ts.Close
+    RangetoHTML = Replace(RangetoHTML, "align=center x:publishsource=", _
+                          "align=left x:publishsource=")
+
+    'Close TempWB
+    TempWB.Close savechanges:=False
+
+    'Delete the htm file we used in this function
+    Kill TempFile
+
+    Set ts = Nothing
+    Set fso = Nothing
+    Set TempWB = Nothing
+
+End Function
