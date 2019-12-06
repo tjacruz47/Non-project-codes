@@ -17,8 +17,8 @@ AND action_timestamp BETWEEN (DATE_TRUNC('week', DATE_TRUNC('day', CURRENT_TIMES
 	
 bliss AS (	
 SELECT DISTINCT	
-JANZ' AS region,	
-Bliss' AS platform,	
+'JANZ' AS region,	
+'Bliss' AS platform,	
 bt.uuid,	
 (CASE WHEN bt.city_id IS NULL THEN 'Unassignable'	
     WHEN country_name = 'Japan' THEN 'Japan Office'	
@@ -81,7 +81,7 @@ time_to_close_minutes,
 FROM dim_bliss_ticket bt	
     LEFT JOIN dim_bliss_ticket_type dt ON bt.type_uuid = dt.uuid	
     LEFT JOIN analytics_bliss_ticket a ON bt.uuid = a.ticket_uuid	
-    LEFT JOIN dim_city c ON (CASE WHEN bt.city_id IS NULL THEN bt.country_uuid ELSE TO_CHAR(bt.city_id) END) = (CASE WHEN bt.city_id IS       NULL THEN c.country_uuid ELSE TO_CHAR(c.city_id) END)	
+    LEFT JOIN dim_city c ON (CASE WHEN bt.city_id IS NULL THEN bt.country_uuid ELSE TO_CHAR(bt.city_id) END) = (CASE WHEN bt.city_id IS         NULL THEN c.country_uuid ELSE TO_CHAR(c.city_id) END)	
     AND NOT (c.mega_region IS NULL OR c.region IS NULL OR c.sub_region IS NULL)	
     LEFT JOIN dim_bliss_agent ba ON LOWER(bt.close_agent_uuid) = LOWER(ba.uuid)	
 	
@@ -101,8 +101,8 @@ WHERE TRUE
 	
 bliss_csat AS (	
 SELECT DISTINCT	
-JANZ' AS region,	
-Bliss' AS platform,	
+'JANZ' AS region,	
+'Bliss' AS platform,	
 bt.uuid,	
 (CASE WHEN bt.city_id IS NULL THEN 'Unassignable'	
     WHEN country_name = 'Japan' THEN 'Japan Office'	
@@ -170,8 +170,8 @@ WHERE TRUE
 	
 zendesk AS (	
 SELECT DISTINCT	
-JANZ' AS region,	
-Zendesk' AS platform,	
+'JANZ' AS region,	
+'Zendesk' AS platform,	
 zendesk_id,	
 (CASE WHEN zd.city_id IS NULL THEN 'Unassignable'	
     WHEN country_name = 'Japan' THEN 'Japan Office'	
@@ -182,7 +182,7 @@ zendesk_id,
     WHEN city_name IN ('Perth','Adelaide','Bunbury') THEN 'Perth Office'	
     ELSE 'Other' END) AS office,	
 city_name,	
-EATS' AS tier,	
+'EATS' AS tier,	
 (CASE WHEN requester_role IN ('Rider', 'Eater', 'Client', 'Recipient', 'eater') THEN 'Eater'	
     WHEN requester_role IN ('Restaurant', 'Fresh Partner','Delivery Business', 'Restaurant Operations', 'restaurant', 'U4B Business User') THEN 'Restaurants'	
     WHEN requester_role IN ('Driver', 'Courier', 'Partner', 'driver', 'courier', 'Vehicle Solutions') THEN 'Courier'	
@@ -328,7 +328,7 @@ COUNT(DISTINCT bt.requester_uuid) AS unique_contacts,
 COUNT(DISTINCT bt.uuid) AS inflows,
 0 AS solves,
 0 AS touches,
-COUNT(DISTINCT CASE WHEN (bt.status = 'open' OR (bt.status NOT IN ('open') AND DATE_TRUNC('week',bt.close_timestamp) >  DATE_TRUNC('week',bt.create_timestamp))) THEN bt.uuid ELSE NULL END) AS backlogs,
+COUNT(DISTINCT CASE WHEN (bt.status = 'open' OR (bt.status NOT IN ('open') AND DATE_TRUNC('week',bt.close_timestamp) > DATE_TRUNC('week',bt.create_timestamp))) THEN bt.uuid ELSE NULL END) AS backlogs,
 0 AS open_touches,
 0 AS awaiting_reply_touches,
 0 AS solve_touches,
@@ -776,7 +776,7 @@ GROUP BY 1,2,3,4,5,6,7,8,9
 	
 trips AS (	
 SELECT DISTINCT	
-JANZ' AS region,	
+'JANZ' AS region,	
 (CASE WHEN product_type IN ('UberEATS Marketplace (order)','UberEATS Instant') THEN 'EATS' ELSE 'Rides' END) AS platform,	
 TO_CHAR(DATE_TRUNC('week', request_timestamp_utc), 'YYYY/MM/DD') AS week,
 (CASE WHEN t.city_id IS NULL THEN 'Unassignable'	
