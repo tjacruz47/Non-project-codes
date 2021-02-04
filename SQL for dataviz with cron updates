@@ -30,7 +30,7 @@ bliss AS
     ELSE 'Other' END) AS office
 ,(CASE WHEN bt.city_id IS NULL THEN 'Unassignable' ELSE city_name END) AS city_name
 ,(CASE WHEN group_uuid IN ('e5a58c0b-13d2-4d85-a2ff-5b53e8e24475') THEN 'Urgent L3/L4'
-    WHEN group_uuid IN ('c4645dbe-67da-4535-97d7-d73feaf8a92c', -- Safety / IRT - Accidents (L1/L2)
+	WHEN group_uuid IN ('c4645dbe-67da-4535-97d7-d73feaf8a92c', -- Safety / IRT - Accidents (L1/L2)
 						'24d6347d-eb31-4494-8402-9e5278ec238e') -- Safety / IRT - Incidents (L1/L2)
 	THEN 'Urgent L1/L2'
 	WHEN group_uuid IN ('8a455f79-fd89-4b16-afb9-ee35a1f04fb5', -- US IRT Urgent Investigations
@@ -38,19 +38,19 @@ bliss AS
 	                    'e82d973c-aa08-4e4c-803b-fa4058f8086e') -- India Program SOS
 	THEN 'Urgent Others'
 	WHEN group_uuid IN ('8939ff21-3d8c-4c98-86f3-b9491f9bbe70', -- NYC TLC
-	                    '3ae18d53-60e2-4da0-a707-6214d64406d9', -- Activations & Docs
-                        'a72edcd0-fe01-4da3-84fe-affdcdc45585', -- Driver Signing Up
-                        '71c2eeca-c958-42c6-8ea0-faa1bdd8376c', -- Fuel Cards
-                        '37ab1f9e-a1bd-423e-acd2-d7f534cf7af0', -- Citations
-                        '1cbcce6b-2466-4e2e-bf28-78aa14a637c0', -- ANZ NSW Funnel
-                        '61d302b0-3755-4014-8545-32d933e74c28') -- Mexico Facturas
+	                   	'3ae18d53-60e2-4da0-a707-6214d64406d9', -- Activations & Docs
+                     	'a72edcd0-fe01-4da3-84fe-affdcdc45585', -- Driver Signing Up
+                      	'71c2eeca-c958-42c6-8ea0-faa1bdd8376c', -- Fuel Cards
+                      	'37ab1f9e-a1bd-423e-acd2-d7f534cf7af0', -- Citations
+                      	'1cbcce6b-2466-4e2e-bf28-78aa14a637c0', -- ANZ NSW Funnel
+                      	'61d302b0-3755-4014-8545-32d933e74c28') -- Mexico Facturas
     THEN 'Funnel'
     WHEN group_uuid IN ('a9930194-9d9a-4f42-be12-766e5ae7c32b') THEN 'ASR'
     WHEN group_uuid IN ('5cff74f3-bffb-4943-9c25-62e265776c40') THEN 'U4B'
     WHEN group_uuid IN ('929dfdbf-7422-418f-9770-468e8658d83c', -- UberEATS Courier
-	                    'af1cab16-7f53-4ea0-9c3b-906e01b0918b', -- UberEATS Eater
-                        'b320b20e-0e05-45c2-a878-12681093dc5c', -- UberEATS Restaurants
-                        '025ddf94-5b53-45cc-8ad4-933d69df8fce') -- UberEATS Account Managers
+	                   	'af1cab16-7f53-4ea0-9c3b-906e01b0918b', -- UberEATS Eater
+                      	'b320b20e-0e05-45c2-a878-12681093dc5c', -- UberEATS Restaurants
+                      	'025ddf94-5b53-45cc-8ad4-933d69df8fce') -- UberEATS Account Managers
 	THEN 'EATS'
 	WHEN bt.tier = 'tier2' THEN 'Level 2' ELSE 'Level 1' END) AS tier
 ,(CASE WHEN group_uuid IN ('af1cab16-7f53-4ea0-9c3b-906e01b0918b') THEN 'Eater'
@@ -79,7 +79,7 @@ FROM dim_bliss_ticket bt
     LEFT JOIN analytics_bliss_ticket a ON bt.uuid = a.ticket_uuid
     LEFT JOIN dim_city c ON (CASE WHEN bt.city_id IS NULL THEN bt.country_uuid
         ELSE TO_CHAR(bt.city_id) END) = (CASE WHEN bt.city_id IS NULL THEN c.country_uuid ELSE TO_CHAR(c.city_id) END)
-    AND NOT (c.mega_region IS NULL OR c.region IS NULL OR c.sub_region IS NULL)
+    	AND NOT (c.mega_region IS NULL OR c.region IS NULL OR c.sub_region IS NULL)
     LEFT JOIN dim_bliss_agent ba ON LOWER(bt.close_agent_uuid) = LOWER(ba.uuid)
 
 WHERE TRUE
@@ -150,7 +150,7 @@ FROM dim_bliss_ticket bt
 	LEFT JOIN analytics_bliss_ticket a ON bt.uuid = a.ticket_uuid	
 	LEFT JOIN dim_city c ON (CASE WHEN bt.city_id IS NULL THEN bt.country_uuid ELSE TO_CHAR(bt.city_id) END) = 
         (CASE WHEN bt.city_id IS NULL THEN c.country_uuid ELSE TO_CHAR(c.city_id) END)	
-	AND NOT (c.mega_region IS NULL OR c.region IS NULL OR c.sub_region IS NULL)	
+		AND NOT (c.mega_region IS NULL OR c.region IS NULL OR c.sub_region IS NULL)	
 	
     LEFT JOIN actions fa ON a.ticket_uuid = fa.ticket_uuid	
 	    AND fa.type = 'update_status' AND fa.value = 'solved'	
